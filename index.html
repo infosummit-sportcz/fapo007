@@ -489,21 +489,31 @@ async function startScanner(){
   el.scannerMsg.textContent = 'Spouštím kameru…';
   try{
     if(!window.Html5Qrcode) throw new Error('Knihovna pro skenování se nenačetla. Zkontrolujte připojení k internetu.');
-    if(!scanCameras.length){
-      try{ scanCameras = await Html5Qrcode.getCameras()||[]; }catch(e){ scanCameras = []; }
-      if(scanCameras.length){
-        const backIdx = scanCameras.findIndex(c=>/back|rear|environment|world/i.test(c.label||''));
-        scanCamIdx = backIdx>=0 ? backIdx : 0;
-      }
-    }
     if(!scanner) scanner = new Html5Qrcode('scannerView',{formatsToSupport:SCAN_FORMATS,verbose:false,experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
-    const target = scanCameras.length ? {deviceId:{exact:scanCameras[scanCamIdx % scanCameras.length].id}} : {facingMode:'environment'};
+    // Dokud neznáme seznam kamer (popisky kamer bývají před udělením oprávnění
+    // nespolehlivé/prázdné), žádáme rovnou o zadní kameru přes facingMode –
+    // to funguje spolehlivě i bez enumerace zařízení.
+    const target = scanCameras.length ? {deviceId:{exact:scanCameras[scanCamIdx % scanCameras.length].id}} : {facingMode:{ideal:'environment'}};
     const videoConstraints = Object.assign({width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]},target);
     try{
       await scanner.start(target,{fps:10,qrbox:qrboxFn,videoConstraints},onScanSuccess,()=>{});
     }catch(e){
       // Vysoké rozlišení nemusí zařízení podporovat – zkusit bez explicitních video constraints.
       await scanner.start(target,{fps:10,qrbox:qrboxFn},onScanSuccess,()=>{});
+    }
+    // Teď, když kamera běží (oprávnění je udělené), zjistíme seznam kamer pro
+    // tlačítko přepínání a seřadíme scanCamIdx podle té, která je skutečně aktivní.
+    if(!scanCameras.length){
+      try{
+        scanCameras = await Html5Qrcode.getCameras()||[];
+        if(scanCameras.length){
+          let curId = '';
+          try{ curId = (scanner.getRunningTrackSettings()||{}).deviceId||''; }catch(e){}
+          let idx = curId ? scanCameras.findIndex(c=>c.id===curId) : -1;
+          if(idx<0) idx = scanCameras.findIndex(c=>/back|rear|environment|world/i.test(c.label||''));
+          scanCamIdx = idx>=0 ? idx : 0;
+        }
+      }catch(e){}
     }
     el.scannerMsg.textContent = 'Namiřte kameru na čárový kód (cca 10–15 cm od kódu, zarovnejte rovně)';
     el.scannerSwitch.hidden = scanCameras.length<2;
