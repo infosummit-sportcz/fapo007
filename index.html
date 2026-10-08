@@ -464,9 +464,9 @@ const SCAN_FORMATS = [9,10,14,15,5,3,8]; // EAN_13, EAN_8, UPC_A, UPC_E, CODE_12
 let scanner = null, scanCameras = [], scanCamIdx = 0, scanTorchOn = false, scanStarting = false;
 const hasCameraApi = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 function qrboxFn(vw,vh){
-  const w = Math.round(Math.min(vw*0.86, Math.max(vh,vw)*0.9));
-  const h = Math.max(70,Math.round(Math.min(vh*0.36, w*0.42)));
-  return {width:Math.max(200,w),height:h};
+  const w = Math.round(Math.min(vw*0.66, Math.max(vh,vw)*0.7));
+  const h = Math.max(56,Math.round(Math.min(vh*0.16, w*0.24)));
+  return {width:Math.max(180,w),height:h};
 }
 function scanErrorMsg(err){
   const s = String((err && (err.message||err))||'');
@@ -484,10 +484,16 @@ async function startScanner(){
   try{
     if(!window.Html5Qrcode) throw new Error('Knihovna pro skenování se nenačetla. Zkontrolujte připojení k internetu.');
     if(!scanCameras.length){ try{ scanCameras = await Html5Qrcode.getCameras()||[]; }catch(e){ scanCameras = []; } }
-    if(!scanner) scanner = new Html5Qrcode('scannerView',{formatsToSupport:SCAN_FORMATS,verbose:false});
+    if(!scanner) scanner = new Html5Qrcode('scannerView',{formatsToSupport:SCAN_FORMATS,verbose:false,experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
     const target = scanCameras.length ? {deviceId:{exact:scanCameras[scanCamIdx % scanCameras.length].id}} : {facingMode:'environment'};
-    await scanner.start(target,{fps:12,qrbox:qrboxFn},onScanSuccess,()=>{});
-    el.scannerMsg.textContent = 'Namiřte kameru na čárový kód';
+    const videoConstraints = Object.assign({width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]},target);
+    try{
+      await scanner.start(target,{fps:10,qrbox:qrboxFn,videoConstraints},onScanSuccess,()=>{});
+    }catch(e){
+      // Vysoké rozlišení nemusí zařízení podporovat – zkusit bez explicitních video constraints.
+      await scanner.start(target,{fps:10,qrbox:qrboxFn},onScanSuccess,()=>{});
+    }
+    el.scannerMsg.textContent = 'Namiřte kameru na čárový kód (cca 10–15 cm od kódu, zarovnejte rovně)';
     el.scannerSwitch.hidden = scanCameras.length<2;
     try{ const caps = scanner.getRunningTrackCapabilities(); el.scannerTorch.hidden = !(caps && caps.torch); }
     catch(e){ el.scannerTorch.hidden = true; }
