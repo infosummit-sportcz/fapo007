@@ -331,9 +331,11 @@ function build(rows){
   return arr;
 }
 function codeRank(p,q,nameWords,brand){
-  /* Značka z "značka X"/"brand X" je tvrdý filtr – pokud nesedí, položka
-     se zahodí bez ohledu na cokoliv dalšího v hledání. */
-  if(brand && !wordStartsAt((p.b||'').toLowerCase(),brand)) return -1;
+  /* Značka z "značka X"/"brand X" je tvrdý filtr na PŘESNÝ název značky
+     (ne jen začátek slova) – pokud nesedí, položka se zahodí bez ohledu na
+     cokoliv dalšího v hledání. Prefix shoda by jinak chytala i nesouvisející
+     značky se stejným začátkem (např. "on" by chytlo i "OneMore"). */
+  if(brand && (p.b||'').trim().toLowerCase()!==brand) return -1;
   const hasName = !!(nameWords && nameWords.length);
   const hasQ = !!q;
   if(!hasQ && !hasName) return brand ? 4 : 0;
