@@ -577,15 +577,22 @@ function getFacets(q,showZero,nameWords){
 }
 /* Fotka produktu z e-shopu summit-sport.cz (dle kódu zboží), natažená přímo —
    mimo claude.ai žádné omezení na cizí domény není. E-shop má fotky nahrané
-   buď jako .jpg, nebo jako .png (nekonzistentně dle produktu/data nahrání) a
-   obrázkový endpoint /i/?i=... vrátí 1×1px zástupný obrázek, pokud soubor s
-   danou příponou neexistuje – i když stejný kód MÁ fotku v druhé příponě.
-   Proto se nejdřív zkusí .jpg, a pokud se vrátí zástupný obrázek nebo chyba
-   sítě, zkusí se ještě jednou .png, než se náhled definitivně schová (viz
+   nekonzistentně napříč katalogem – různé produkty mají hlavní fotku uloženou
+   pod různým jménem souboru: "_1.jpg", "_1.png", "_1.webp", "_1.jpeg", nebo
+   dokonce bez pořadového čísla ("CODE.jpg"/"CODE.webp"/...). Obrázkový
+   endpoint /i/?i=... vrátí 1×1px zástupný obrázek (nebo chybu), pokud
+   požadovaný název souboru neexistuje – i když stejný kód MÁ fotku pod jiným
+   jménem. Proto se zkusí postupně všechny obvyklé varianty, dokud jedna
+   nezabere, a teprve když selžou úplně všechny, náhled se schová (viz
    posluchač load/error u #results níže).
 */
-function thumbUrl(code,ext){
-  return 'https://www.summit-sport.cz/i/?i='+encodeURIComponent(code)+'_1.'+(ext||'jpg')+'&w=168&h=168';
+const THUMB_CANDIDATES = [
+  '_1.jpg','_1.png','_1.webp','_1.jpeg',
+  '.jpg','.png','.webp','.jpeg'
+];
+function thumbUrl(code,variantIdx){
+  const suffix = THUMB_CANDIDATES[variantIdx||0];
+  return 'https://www.summit-sport.cz/i/?i='+encodeURIComponent(code)+suffix+'&w=168&h=168';
 }
 function eshopUrl(code){
   return 'https://www.summit-sport.cz/hledani/'+encodeURIComponent(code)+'/';
@@ -621,7 +628,7 @@ function itemHtml(p,q,sq,showZero,nameWords){
   return '<article class="item"><div class="code">'+markCode(p,q)+'</div><div class="info"><h2 class="name">'+nameHtml+'</h2>'+
     '<p class="meta">'+meta.join('')+'</p><ul class="sizes">'+tags+'</ul>'+details+'</div>'+
     '<div class="price"><a class="price-link" href="'+esc(eshopUrl(p.c))+'" target="_blank" rel="noopener" title="Otevřít na eshopu summit-sport.cz"><span class="amount">'+(p.p>0?nf.format(p.p)+'\u00A0Kč':'')+'</span>'+
-    '<img class="thumb" src="'+esc(thumbUrl(p.c))+'" data-code="'+esc(p.c)+'" data-ext="jpg" alt="" loading="lazy" decoding="async"></a></div></article>';
+    '<img class="thumb" src="'+esc(thumbUrl(p.c,0))+'" data-code="'+esc(p.c)+'" data-variant="0" alt="" loading="lazy" decoding="async"></a></div></article>';
 }
 function renderChips(facets,sq){
   const top = new Set([...facets].sort((a,b)=>b.count-a.count).slice(0,CHIPS_COLLAPSED).map(f=>f.key));
@@ -705,14 +712,15 @@ el.status.addEventListener('click',e=>{
   const b = e.target.closest('[data-act="showzero"]'); if(!b) return;
   el.zero.checked = true; limit = PAGE; render();
 });
-/* fotky z e-shopu: placeholder (1x1 px) nebo chyba sítě -> zkusit druhou
-   příponu (.jpg <-> .png), a teprve pokud selže i ta, schovat, aby nezůstal
-   prázdný rámeček. */
+/* fotky z e-shopu: placeholder (1x1 px) nebo chyba sítě -> zkusit další
+   variantu jména souboru (viz THUMB_CANDIDATES), a teprve když selžou úplně
+   všechny, schovat, aby nezůstal prázdný rámeček. */
 function tryNextThumbExt(img){
   const code = img.dataset.code;
-  if(!code || img.dataset.ext==='png') { img.hidden = true; return; }
-  img.dataset.ext = 'png';
-  img.src = thumbUrl(code,'png');
+  const next = (parseInt(img.dataset.variant,10)||0) + 1;
+  if(!code || next>=THUMB_CANDIDATES.length) { img.hidden = true; return; }
+  img.dataset.variant = String(next);
+  img.src = thumbUrl(code,next);
 }
 el.results.addEventListener('error',e=>{
   const img = e.target;
