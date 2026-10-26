@@ -238,26 +238,45 @@ const pl = (n,a,b,c) => n===1?a:(n>=2&&n<=4?b:c);
 
 /* ---------- "chytré" hledání volným textem ---------- */
 /* Lidé místo holých klíčových slov často napíšou celou větu ("hledám boty
-   značky ON", "chci černé boty od ON"). Slova hledání se porovnávají proti
-   p.ltags (název+značka+typ+skupina), takže stačí vyfiltrovat výplňová slova
-   (slovesa, spojky, "značka" apod.) a očistit interpunkci – zbytek (skutečné
-   klíčové výrazy jako "boty" nebo "on") se pak normálně AND-matchuje jako
-   dřív. Diakritika se u stopslov ignoruje, aby fungovalo "znacka" i "značka".
+   značky ON", "chci černé boty od ON"). Výplňová slova (slovesa, spojky,
+   "značka" apod.) se z hledání vyfiltrují a zbylá klíčová slova (např.
+   "boty") se AND-matchují proti p.ltags jako dřív. Navíc: slovo hned za
+   "značka"/"znacka"/"brand" se bere jako explicitní filtr na ZNAČKU (pole
+   p.b), ne jako obecné klíčové slovo – takže "značka ON, boty" najde jen
+   položky, kde značka skutečně ZAČÍNÁ na "on" (ne kdekoli uprostřed slova,
+   viz wordStartsAt), a "boty" se hledá zvlášť jako dřív. Bez diakritických
+   triků – obě varianty (s/bez diakritiky) jsou prostě v seznamu zvlášť.
 */
-const stripDiacritics = s => s.normalize('NFD').replace(/[̀-ͯ]/g,'');
-const STOPWORDS = new Set(['hledam','hledame','hledas','hledate','hledal','hledala',
-  'chci','chceme','chtel','chtela','chteli','chtelbych','potrebuji','potrebuju','potrebujeme',
-  'mam','mame','prosim','prosimte','dekuji','diky','dik','vas','mi','mne',
-  'znacka','znacky','znacku','znackou','znackove','znacky,','typ','typu','typy',
-  'kategorie','kategorii','skupina','skupiny','nejaky','nejaka','nejake','nejakou',
-  'neco','jaky','jaka','jake','jakou','jsou','jsem','je','by','byste',
+const BRAND_TRIGGERS = new Set(['znacka','značka','znacky','značky','znacku','značku','brand']);
+const STOPWORDS = new Set(['hledam','hledám','hledame','hledáme','hledas','hledáš','hledate','hledáte','hledal','hledala',
+  'chci','chceme','chtel','chtěl','chtela','chtěla','chteli','chtěli','chtelbych','chtělbych','potrebuji','potřebuji','potrebuju','potřebuju','potrebujeme','potřebujeme',
+  'mam','mám','mame','máme','prosim','prosím','prosimte','prosímte','dekuji','děkuji','diky','díky','dik','dík','vas','vás','mi','mne','mně',
+  'typ','typu','typy','kategorie','kategorii','skupina','skupiny','nejaky','nějaký','nejaka','nějaká','nejake','nějaké','nejakou','nějakou',
+  'neco','něco','jaky','jaký','jaka','jaká','jake','jaké','jakou','jsou','jsem','je','by','byste',
   'a','i','nebo','ale','pro','na','v','ve','do','za','s','se','z','ze','k','ke','o','u','bez','od']);
-function smartWords(qRaw){
-  return qRaw ? qRaw.split(' ')
-    .map(w=>w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,''))
-    .filter(Boolean)
-    .filter(w=>!STOPWORDS.has(stripDiacritics(w)))
-    : [];
+const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+/* Slovo se počítá jako nalezené, jen když ZAČÍNÁ nějaké slovo v textu (na
+   začátku textu nebo hned po mezeře/interpunkci) – ne kdekoli uprostřed
+   jiného slova. Bez téhle podmínky by krátké značky jako "on" chytaly i
+   nesouvisející slova typu "LugiONata". Prefix shoda v rámci slova zůstává
+   (např. "water" najde "waterproof"). */
+function wordStartsAt(tags,w){
+  return new RegExp('(^|[^\\p{L}\\p{N}])'+escapeRegex(w),'iu').test(tags);
+}
+function smartParse(qRaw){
+  const tokens = qRaw ? qRaw.split(' ').map(w=>w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,'')).filter(Boolean) : [];
+  const words = []; let brand = '';
+  for(let i=0;i<tokens.length;i++){
+    const w = tokens[i];
+    if(BRAND_TRIGGERS.has(w)){
+      const next = tokens[i+1];
+      if(next && !STOPWORDS.has(next) && !BRAND_TRIGGERS.has(next)){ brand = next; i++; }
+      continue;
+    }
+    if(STOPWORDS.has(w)) continue;
+    words.push(w);
+  }
+  return {words,brand};
 }
 const nf = new Intl.NumberFormat('cs-CZ');
 const fmtDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); return m ? `${+m[3]}. ${+m[2]}. ${m[1]}` : ''; };
@@ -311,17 +330,22 @@ function build(rows){
   arr.sort((a,b)=>a.c.localeCompare(b.c)||a.col.localeCompare(b.col,'cs'));
   return arr;
 }
-function codeRank(p,q,nameWords){
+function codeRank(p,q,nameWords,brand){
+  /* Značka z "značka X"/"brand X" je tvrdý filtr – pokud nesedí, položka
+     se zahodí bez ohledu na cokoliv dalšího v hledání. */
+  if(brand && !wordStartsAt((p.b||'').toLowerCase(),brand)) return -1;
   const hasName = !!(nameWords && nameWords.length);
-  if(!q && !hasName) return 0;
-  if(q){
+  const hasQ = !!q;
+  if(!hasQ && !hasName) return brand ? 4 : 0;
+  if(hasQ){
     if(p.lc===q || p.lcn===q) return 0;
     if(p.lc.startsWith(q) || (p.lcn && p.lcn.startsWith(q))) return 1;
     if(p.lc.includes(q)) return 2;
     if(q.length>=3 && p.ld.some(d=>d.includes(q))) return 3;
     if(q.length>=6 && p.le.some(e=>e.includes(q))) return 3;
   }
-  if(hasName && nameWords.every(w=>p.ltags.includes(w))) return 4;
+  if(hasName && nameWords.every(w=>wordStartsAt(p.ltags,w))) return 4;
+  if(brand && !hasName) return 4;
   return -1;
 }
 function highlightAll(text,needles){
@@ -580,10 +604,10 @@ el.scannerTorch.addEventListener('click',async ()=>{
 });
 
 /* ---------- filtrování ---------- */
-function getFacets(q,showZero,nameWords){
-  const ck = q+'|'+(nameWords?nameWords.join(' '):'')+'|'+showZero+'|'+dbVersion;
+function getFacets(q,showZero,nameWords,brand){
+  const ck = q+'|'+(nameWords?nameWords.join(' '):'')+'|'+(brand||'')+'|'+showZero+'|'+dbVersion;
   if(facetCache.key===ck) return facetCache.list;
-  const cand = products.filter(p=>codeRank(p,q,nameWords)>=0);
+  const cand = products.filter(p=>codeRank(p,q,nameWords,brand)>=0);
   const keys = new Map();
   for(const p of cand) for(const s of p.sizes){
     if(!s.n || !(showZero||s.q>0)) continue;
@@ -668,14 +692,14 @@ function renderChips(facets,sq){
 function render(){
   const qRaw = el.q.value.trim().toLowerCase().replace(/\s+/g,' ');
   const q = qRaw.replace(/\s+/g,'');
-  const nameWords = smartWords(qRaw);
+  const {words:nameWords,brand} = smartParse(qRaw);
   const rawSize = el.sz.value.trim();
   const sq = normSize(rawSize);
   const showZero = el.zero.checked;
   const active = !!(q||sq);
   el.clear.hidden = !(active || showZero);
 
-  const facets = getFacets(q,showZero,nameWords);
+  const facets = getFacets(q,showZero,nameWords,brand);
   renderChips(facets,sq);
 
   if(!active){
@@ -689,7 +713,7 @@ function render(){
 
   const matched = []; let hidden = 0;
   for(const p of products){
-    const rank = codeRank(p,q,nameWords); if(rank<0) continue;
+    const rank = codeRank(p,q,nameWords,brand); if(rank<0) continue;
     const hit = s => !sq || sizeMatches(s.n,sq);
     if(!p.sizes.some(hit)) continue;
     if(!p.sizes.some(s=>hit(s) && (showZero||s.q>0))){ hidden++; continue; }
