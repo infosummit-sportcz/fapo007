@@ -578,8 +578,9 @@ function getFacets(q,showZero,nameWords){
 /* Fotka produktu z e-shopu summit-sport.cz (dle kódu zboží), natažená přímo —
    mimo claude.ai žádné omezení na cizí domény není. E-shop má fotky nahrané
    nekonzistentně napříč katalogem – různé produkty mají hlavní fotku uloženou
-   pod různým jménem souboru: "_1.jpg", "_1.png", "_1.webp", "_1.jpeg", nebo
-   dokonce bez pořadového čísla ("CODE.jpg"/"CODE.webp"/...). Obrázkový
+   pod různým jménem souboru: "_1.jpg", "_1.png", "_1.webp", "_1.jpeg",
+   "_1.avif", nebo dokonce bez pořadového čísla ("CODE.jpg"/"CODE.webp"/...).
+   Obrázkový
    endpoint /i/?i=... vrátí 1×1px zástupný obrázek (nebo chybu), pokud
    požadovaný název souboru neexistuje – i když stejný kód MÁ fotku pod jiným
    jménem. Proto se zkusí postupně všechny obvyklé varianty, dokud jedna
@@ -587,8 +588,8 @@ function getFacets(q,showZero,nameWords){
    posluchač load/error u #results níže).
 */
 const THUMB_CANDIDATES = [
-  '_1.jpg','_1.png','_1.webp','_1.jpeg',
-  '.jpg','.png','.webp','.jpeg'
+  '_1.jpg','_1.png','_1.webp','_1.jpeg','_1.avif',
+  '.jpg','.png','.webp','.jpeg','.avif'
 ];
 function thumbUrl(code,variantIdx){
   const suffix = THUMB_CANDIDATES[variantIdx||0];
