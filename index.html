@@ -235,6 +235,30 @@ let DB = null, products = [], limit = PAGE, chipsOpen = false, dbVersion = 0, fa
 /* ---------- pomocné funkce ---------- */
 const esc = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pl = (n,a,b,c) => n===1?a:(n>=2&&n<=4?b:c);
+
+/* ---------- "chytré" hledání volným textem ---------- */
+/* Lidé místo holých klíčových slov často napíšou celou větu ("hledám boty
+   značky ON", "chci černé boty od ON"). Slova hledání se porovnávají proti
+   p.ltags (název+značka+typ+skupina), takže stačí vyfiltrovat výplňová slova
+   (slovesa, spojky, "značka" apod.) a očistit interpunkci – zbytek (skutečné
+   klíčové výrazy jako "boty" nebo "on") se pak normálně AND-matchuje jako
+   dřív. Diakritika se u stopslov ignoruje, aby fungovalo "znacka" i "značka".
+*/
+const stripDiacritics = s => s.normalize('NFD').replace(/[̀-ͯ]/g,'');
+const STOPWORDS = new Set(['hledam','hledame','hledas','hledate','hledal','hledala',
+  'chci','chceme','chtel','chtela','chteli','chtelbych','potrebuji','potrebuju','potrebujeme',
+  'mam','mame','prosim','prosimte','dekuji','diky','dik','vas','mi','mne',
+  'znacka','znacky','znacku','znackou','znackove','znacky,','typ','typu','typy',
+  'kategorie','kategorii','skupina','skupiny','nejaky','nejaka','nejake','nejakou',
+  'neco','jaky','jaka','jake','jakou','jsou','jsem','je','by','byste',
+  'a','i','nebo','ale','pro','na','v','ve','do','za','s','se','z','ze','k','ke','o','u','bez','od']);
+function smartWords(qRaw){
+  return qRaw ? qRaw.split(' ')
+    .map(w=>w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,''))
+    .filter(Boolean)
+    .filter(w=>!STOPWORDS.has(stripDiacritics(w)))
+    : [];
+}
 const nf = new Intl.NumberFormat('cs-CZ');
 const fmtDate = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); return m ? `${+m[3]}. ${+m[2]}. ${m[1]}` : ''; };
 const sentence = s => { s = String(s||'').trim().toLowerCase(); return s.charAt(0).toUpperCase()+s.slice(1); };
@@ -644,7 +668,7 @@ function renderChips(facets,sq){
 function render(){
   const qRaw = el.q.value.trim().toLowerCase().replace(/\s+/g,' ');
   const q = qRaw.replace(/\s+/g,'');
-  const nameWords = qRaw ? qRaw.split(' ').filter(Boolean) : [];
+  const nameWords = smartWords(qRaw);
   const rawSize = el.sz.value.trim();
   const sq = normSize(rawSize);
   const showZero = el.zero.checked;
