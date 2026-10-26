@@ -263,14 +263,39 @@ const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 function wordStartsAt(tags,w){
   return new RegExp('(^|[^\\p{L}\\p{N}])'+escapeRegex(w),'iu').test(tags);
 }
+/* Pro porovnávání značky se ignoruje diakritika i velikost písmen (např.
+   "znacka haglofs" má najít i "Haglöfs"). */
+const foldBrand = s => String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+let brandSetCache = {ver:-1,set:new Set()};
+function getBrandSet(){
+  if(brandSetCache.ver!==dbVersion){
+    const set = new Set();
+    for(const p of products) if(p.b) set.add(foldBrand(p.b));
+    brandSetCache = {ver:dbVersion,set};
+  }
+  return brandSetCache.set;
+}
 function smartParse(qRaw){
   const tokens = qRaw ? qRaw.split(' ').map(w=>w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,'')).filter(Boolean) : [];
   const words = []; let brand = '';
   for(let i=0;i<tokens.length;i++){
     const w = tokens[i];
     if(BRAND_TRIGGERS.has(w)){
-      const next = tokens[i+1];
-      if(next && !STOPWORDS.has(next) && !BRAND_TRIGGERS.has(next)){ brand = next; i++; }
+      /* Značky jako "Perfect Moment" jsou víceslovné – zkusí se nejdelší
+         shoda se skutečným názvem značky z načtených dat (až 4 slova), a
+         teprve když nic nesedí, vezme se jen jedno slovo jako dřív. */
+      const brands = getBrandSet();
+      let consumed = 0;
+      const maxLook = Math.min(4,tokens.length-(i+1));
+      for(let len=maxLook; len>=1; len--){
+        const phrase = foldBrand(tokens.slice(i+1,i+1+len).join(' '));
+        if(brands.has(phrase)){ brand = phrase; consumed = len; break; }
+      }
+      if(!consumed){
+        const next = tokens[i+1];
+        if(next && !STOPWORDS.has(next) && !BRAND_TRIGGERS.has(next)){ brand = foldBrand(next); consumed = 1; }
+      }
+      i += consumed;
       continue;
     }
     if(STOPWORDS.has(w)) continue;
@@ -335,7 +360,7 @@ function codeRank(p,q,nameWords,brand){
      (ne jen začátek slova) – pokud nesedí, položka se zahodí bez ohledu na
      cokoliv dalšího v hledání. Prefix shoda by jinak chytala i nesouvisející
      značky se stejným začátkem (např. "on" by chytlo i "OneMore"). */
-  if(brand && (p.b||'').trim().toLowerCase()!==brand) return -1;
+  if(brand && foldBrand(p.b)!==brand) return -1;
   const hasName = !!(nameWords && nameWords.length);
   const hasQ = !!q;
   if(!hasQ && !hasName) return brand ? 4 : 0;
