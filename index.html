@@ -244,39 +244,42 @@ const pl = (n,a,b,c) => n===1?a:(n>=2&&n<=4?b:c);
    "značka"/"znacka"/"brand" se bere jako explicitní filtr na ZNAČKU (pole
    p.b), ne jako obecné klíčové slovo – takže "značka ON, boty" najde jen
    položky, kde značka skutečně ZAČÍNÁ na "on" (ne kdekoli uprostřed slova,
-   viz wordStartsAt), a "boty" se hledá zvlášť jako dřív. Bez diakritických
-   triků – obě varianty (s/bez diakritiky) jsou prostě v seznamu zvlášť.
+   viz wordStartsAt), a "boty" se hledá zvlášť jako dřív.
+
+   Diakritika i velikost písmen se ignorují ÚPLNĚ VŠUDE (přes fold()) –
+   "damske"="Dámské", "cepice"="Čepice", "znacka"="značka" atd. – takže
+   stopslova i spouštěcí slova pro značku stačí mít v jedné (bezdiakritické)
+   podobě.
 */
-const BRAND_TRIGGERS = new Set(['znacka','značka','znacky','značky','znacku','značku','brand']);
-const STOPWORDS = new Set(['hledam','hledám','hledame','hledáme','hledas','hledáš','hledate','hledáte','hledal','hledala',
-  'chci','chceme','chtel','chtěl','chtela','chtěla','chteli','chtěli','chtelbych','chtělbych','potrebuji','potřebuji','potrebuju','potřebuju','potrebujeme','potřebujeme',
-  'mam','mám','mame','máme','prosim','prosím','prosimte','prosímte','dekuji','děkuji','diky','díky','dik','dík','vas','vás','mi','mne','mně',
-  'typ','typu','typy','kategorie','kategorii','skupina','skupiny','nejaky','nějaký','nejaka','nějaká','nejake','nějaké','nejakou','nějakou',
-  'neco','něco','jaky','jaký','jaka','jaká','jake','jaké','jakou','jsou','jsem','je','by','byste',
+const fold = s => String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+const BRAND_TRIGGERS = new Set(['znacka','znacky','znacku','brand']);
+const STOPWORDS = new Set(['hledam','hledame','hledas','hledate','hledal','hledala',
+  'chci','chceme','chtel','chtela','chteli','chtelbych','potrebuji','potrebuju','potrebujeme',
+  'mam','mame','prosim','prosimte','dekuji','diky','dik','vas','mi','mne',
+  'typ','typu','typy','kategorie','kategorii','skupina','skupiny','nejaky','nejaka','nejake','nejakou',
+  'neco','jaky','jaka','jake','jakou','jsou','jsem','je','by','byste',
   'a','i','nebo','ale','pro','na','v','ve','do','za','s','se','z','ze','k','ke','o','u','bez','od']);
 const escapeRegex = s => s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 /* Slovo se počítá jako nalezené, jen když ZAČÍNÁ nějaké slovo v textu (na
    začátku textu nebo hned po mezeře/interpunkci) – ne kdekoli uprostřed
    jiného slova. Bez téhle podmínky by krátké značky jako "on" chytaly i
    nesouvisející slova typu "LugiONata". Prefix shoda v rámci slova zůstává
-   (např. "water" najde "waterproof"). */
+   (např. "water" najde "waterproof"). Očekává, že `tags` i `w` jsou už
+   obě přes fold(). */
 function wordStartsAt(tags,w){
   return new RegExp('(^|[^\\p{L}\\p{N}])'+escapeRegex(w),'iu').test(tags);
 }
-/* Pro porovnávání značky se ignoruje diakritika i velikost písmen (např.
-   "znacka haglofs" má najít i "Haglöfs"). */
-const foldBrand = s => String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
 let brandSetCache = {ver:-1,set:new Set()};
 function getBrandSet(){
   if(brandSetCache.ver!==dbVersion){
     const set = new Set();
-    for(const p of products) if(p.b) set.add(foldBrand(p.b));
+    for(const p of products) if(p.b) set.add(fold(p.b));
     brandSetCache = {ver:dbVersion,set};
   }
   return brandSetCache.set;
 }
 function smartParse(qRaw){
-  const tokens = qRaw ? qRaw.split(' ').map(w=>w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,'')).filter(Boolean) : [];
+  const tokens = qRaw ? qRaw.split(' ').map(w=>fold(w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,''))).filter(Boolean) : [];
   const words = []; let brand = '';
   for(let i=0;i<tokens.length;i++){
     const w = tokens[i];
@@ -288,12 +291,12 @@ function smartParse(qRaw){
       let consumed = 0;
       const maxLook = Math.min(4,tokens.length-(i+1));
       for(let len=maxLook; len>=1; len--){
-        const phrase = foldBrand(tokens.slice(i+1,i+1+len).join(' '));
+        const phrase = tokens.slice(i+1,i+1+len).join(' ');
         if(brands.has(phrase)){ brand = phrase; consumed = len; break; }
       }
       if(!consumed){
         const next = tokens[i+1];
-        if(next && !STOPWORDS.has(next) && !BRAND_TRIGGERS.has(next)){ brand = foldBrand(next); consumed = 1; }
+        if(next && !STOPWORDS.has(next) && !BRAND_TRIGGERS.has(next)){ brand = next; consumed = 1; }
       }
       i += consumed;
       continue;
@@ -348,7 +351,9 @@ function build(rows){
   for(const p of arr){
     p.sizes.sort((a,b)=>cmpSize(a.n,b.n));
     p.lc = p.c.toLowerCase(); p.lcn = p.cn.toLowerCase(); p.ln = p.n.toLowerCase();
-    p.ltags = [p.n,p.b,p.t,p.grp,p.g].filter(Boolean).join(' ').toLowerCase();
+    /* ltags je bez diakritiky a velkých písmen (přes fold()), aby hledání
+       "damske" našlo "Dámské", "cepice" našlo "Čepice" apod. */
+    p.ltags = fold([p.n,p.b,p.t,p.grp,p.g].filter(Boolean).join(' '));
     p.ld = [...p.d].map(x=>x.toLowerCase());
     p.le = p.sizes.flatMap(s=>s.e);
   }
@@ -360,7 +365,7 @@ function codeRank(p,q,nameWords,brand){
      (ne jen začátek slova) – pokud nesedí, položka se zahodí bez ohledu na
      cokoliv dalšího v hledání. Prefix shoda by jinak chytala i nesouvisející
      značky se stejným začátkem (např. "on" by chytlo i "OneMore"). */
-  if(brand && foldBrand(p.b)!==brand) return -1;
+  if(brand && fold(p.b)!==brand) return -1;
   const hasName = !!(nameWords && nameWords.length);
   const hasQ = !!q;
   if(!hasQ && !hasName) return brand ? 4 : 0;
@@ -378,7 +383,11 @@ function codeRank(p,q,nameWords,brand){
 function highlightAll(text,needles){
   text = String(text||'');
   if(!needles || !needles.length) return esc(text);
-  const lower = text.toLowerCase();
+  /* needles (nameWords) jsou přes fold() – bez diakritiky a malými písmeny.
+     fold() je na délku neutrální (NFD rozklad + odstranění diakritických
+     znamének vrátí stejný počet znaků jako originál), takže indexy nalezené
+     ve "lower" sedí 1:1 na pozice v původním (nezabaleném) "text". */
+  const lower = fold(text);
   let ranges = [];
   for(const w of needles){
     if(!w) continue;
