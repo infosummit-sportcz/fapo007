@@ -578,18 +578,21 @@ function getFacets(q,showZero,nameWords){
 /* Fotka produktu z e-shopu summit-sport.cz (dle kódu zboží), natažená přímo —
    mimo claude.ai žádné omezení na cizí domény není. E-shop má fotky nahrané
    nekonzistentně napříč katalogem – různé produkty mají hlavní fotku uloženou
-   pod různým jménem souboru: "_1.jpg", "_1.png", "_1.webp", "_1.jpeg",
-   "_1.avif", nebo dokonce bez pořadového čísla ("CODE.jpg"/"CODE.webp"/...).
-   Obrázkový
-   endpoint /i/?i=... vrátí 1×1px zástupný obrázek (nebo chybu), pokud
-   požadovaný název souboru neexistuje – i když stejný kód MÁ fotku pod jiným
-   jménem. Proto se zkusí postupně všechny obvyklé varianty, dokud jedna
-   nezabere, a teprve když selžou úplně všechny, náhled se schová (viz
-   posluchač load/error u #results níže).
+   pod různým jménem souboru: bez pořadového čísla ("CODE.jpg"/"CODE.webp"/...)
+   nebo s "_1" ("CODE_1.jpg"/"CODE_1.png"/...), v různých formátech. Důležité:
+   "CODE_1.*" NENÍ spolehlivě "první/hlavní fotka" – u některých produktů je
+   to úplně jiný snímek z galerie (např. pohled na podrážku), zatímco hlavní
+   fotka je uložená bez "_1". Proto se vždy nejdřív zkusí varianty BEZ "_1"
+   (to je ta, co e-shop sám používá jako hlavní/OG fotku nejčastěji), a teprve
+   pak varianty s "_1" jako záloha. Obrázkový endpoint /i/?i=... vrátí 1×1px
+   zástupný obrázek (nebo chybu), pokud požadovaný název souboru neexistuje –
+   i když stejný kód MÁ fotku pod jiným jménem. Proto se zkusí postupně
+   všechny obvyklé varianty, dokud jedna nezabere, a teprve když selžou úplně
+   všechny, náhled se schová (viz posluchač load/error u #results níže).
 */
 const THUMB_CANDIDATES = [
-  '_1.jpg','_1.png','_1.webp','_1.jpeg','_1.avif',
-  '.jpg','.png','.webp','.jpeg','.avif'
+  '.jpg','.png','.webp','.jpeg','.avif',
+  '_1.jpg','_1.png','_1.webp','_1.jpeg','_1.avif'
 ];
 function thumbUrl(code,variantIdx){
   const suffix = THUMB_CANDIDATES[variantIdx||0];
